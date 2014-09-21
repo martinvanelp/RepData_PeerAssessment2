@@ -1,0 +1,103 @@
+---
+title: "Analysis of NOAA's storm database regarding public health and economic consequences"
+author: "martinvanelp"
+date: "Sunday, September 21, 2014"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+##Synopsis
+Based on an analysis of U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database it is concluded that Tornadoes are the most damaging weather events. They both cause the most human damages in the form of fatalities and injuries, as the most economic damages in the form of damaged properties and crops. The analysis also shows which other events are the most damaging to humans and to the economy.
+
+##Data Processing
+This section describes how the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database was processed. It basically creates two sets of information per weather event, describing human fatalities and injuries, and economic damages as a total of property and crop damages.
+
+Loading the data into R and showing the available variables:
+```{r, cache=TRUE}
+data <- read.csv("repdata-data-StormData.csv")
+names(data)
+```
+
+We make an aggregated dataset for each type of event, with the sum of fatalities and injuries. From this set we take the worst 10 events, assuming more fatalities is always worse than more injuries. Lastly, we melt this "wide" data frame into a "narrow" version, and make a factor of the event type.
+```{r}
+data_fi_ev <- aggregate(cbind(FATALITIES, INJURIES) ~ EVTYPE, 
+                        data = data, sum)
+
+data_fi_ev <- head(data_fi_ev[order(-data_fi_ev$FATALITIES,
+                                    -data_fi_ev$INJURIES), ], 10)
+
+library(reshape2)
+data_fi_ev <- melt(data_fi_ev, id=c("EVTYPE"))
+data_fi_ev$EVTYPE <- factor(data_fi_ev$EVTYPE, 
+                            levels = data_fi_ev$EVTYPE, ordered = TRUE)
+```
+
+Economic damages (property and crops) take more effort as these are partly expressed in strings (K for thousands, M for millions, and B for billions). We first drop all rows that do not mention these strings as we cannot understand that input anyway. Then we multiply the property and crop numerical damages with the appropriate amount to account for the string. Lastly, again for both property and crops an aggregated set is made with total damages per type of event.
+```{r}
+data_prop <- data[data$PROPDMGEXP %in% c("K", "M", "B"), ]
+data_crop <- data[data$CROPDMGEXP %in% c("K", "M", "B"), ]
+
+with(data_prop, {
+        PROPDMG[PROPDMGEXP == "K"] <- PROPDMG[PROPDMGEXP == "K"] * 10^3
+        PROPDMG[PROPDMGEXP == "M"] <- PROPDMG[PROPDMGEXP == "M"] * 10^6
+        PROPDMG[PROPDMGEXP == "B"] <- PROPDMG[PROPDMGEXP == "B"] * 10^9
+})
+
+with(data_crop, {
+        CROPDMG[CROPDMGEXP == "K"] <- CROPDMG[CROPDMGEXP == "K"] * 10^3
+        CROPDMG[CROPDMGEXP == "M"] <- CROPDMG[CROPDMGEXP == "M"] * 10^6
+        CROPDMG[CROPDMGEXP == "B"] <- CROPDMG[CROPDMGEXP == "B"] * 10^9
+})
+
+data_pr_ev <- aggregate(PROPDMG ~ EVTYPE, data = data_prop, sum)
+data_cr_ev <- aggregate(CROPDMG ~ EVTYPE, data = data_crop, sum)
+```
+
+These sets for property and crop damages are merged and missing values are replaced with 0 (damages). We calculate total damages from the separate variables for property and crop damages. From this set we take the 10 most damaging events. Lastly, we melt this "wide" data frame into a "narrow" version, and make a factor of the event type.
+
+```{r}
+data_pc_ev <- merge(data_pr_ev, data_cr_ev, by = "EVTYPE", all = TRUE)
+data_pc_ev$PROPDMG[is.na(data_pc_ev$PROPDMG)] <- 0
+data_pc_ev$CROPDMG[is.na(data_pc_ev$CROPDMG)] <- 0
+data_pc_ev$TOTDMG <- data_pc_ev$PROPDMG + data_pc_ev$CROPDMG
+
+data_pc_ev <- head(data_pc_ev[order(-data_pc_ev$TOTDMG), ], 10)
+
+data_pc_ev <- melt(data_pc_ev, id=c("EVTYPE"))
+data_pc_ev$EVTYPE <- factor(data_pc_ev$EVTYPE, 
+                            levels = data_pc_ev$EVTYPE, ordered = TRUE)
+```
+
+#Results
+Tornadoes cause both the most fatalities and injuries to humans, as are the most damaging to the economy. Beneath is shown for fatalities and injuries which 10 weather events are the most severe. After that, is shown for property and crop damages which 10 weather events are the most damaging to the economy.
+
+##Fatalities and injuries
+Across the United States, Tornadoes are by far the most harmful weather events, with respect to fatalities and injuries. Second most injurious event is Excessive Heat, followed by Flash Flood and Heat. Lighting, TSTM Wind and Flood cause less fatalities, but more injuries, than Flash Flood and Heat. Refer to the graph beneath for more information about the 10 most harmful weather events.
+
+```{r}
+library(ggplot2)
+ggplot(data_fi_ev, aes(x = EVTYPE, y = value, fill = variable)) + 
+        theme(plot.title = element_text(size = rel(1.5)), 
+              axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(title = "Fatalities and injuries per weather event", 
+             x = NULL, y = "Number of fatalities and injuries",
+             fill = NULL) + 
+        geom_bar(stat = "identity", position = "stack")
+```
+
+##Economic damages to properties and crops
+Across the United States, Tornadoes are by far the most economically damaging weather events, with respect to total economic damages. Second most injurious event is Flash Flood, followed by TSTM Wind and Hail. Particularly Hail causes large damages to crops. Refer to the graph beneath for more information about the 10 most economically damaging weather events.
+
+```{r}
+graph_pc_ev <- data_pc_ev[data_pc_ev$variable != "TOTDMG", ]
+ggplot(graph_pc_ev, aes(x = EVTYPE, y = value, fill = variable)) + 
+        theme(plot.title = element_text(size = rel(1.5)), 
+              axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(title = "Economic damages per weather event", 
+             x = NULL, y = "Level of damages",
+             fill = NULL) + 
+        geom_bar(stat = "identity", position = "stack")
+```
